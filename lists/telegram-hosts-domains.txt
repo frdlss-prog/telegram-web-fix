@@ -1,0 +1,19 @@
+# Only these hostnames are touched in hosts (nothing else)
+web.telegram.org
+webk.telegram.org
+weba.telegram.org
+kws2.web.telegram.org
+kws2-1.web.telegram.org
+kws4.web.telegram.org
+kws4-1.web.telegram.org
+zws2.web.telegram.org
+zws2-1.web.telegram.org
+zws4.web.telegram.org
+zws4-1.web.telegram.org
+venus.web.telegram.org
+venus-1.web.telegram.org
+pluto.web.telegram.org
+aurora.web.telegram.org
+vesta.web.telegram.org
+vesta-1.web.telegram.org
+flora.web.telegram.org
