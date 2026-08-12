@@ -200,7 +200,7 @@ exit /b 0
 echo.
 echo   !CYN!╔════════════════════════════════════════════════════════════════════════════════════════════╗!R!
 echo   !CYN!║!R!                                     !GRN!TELEGRAM WEB FIX!R!                                       !CYN!║!R!
-echo   !CYN!║!R!                                !DIM!web.telegram.org через hosts!R!                                !CYN!║!R!
+echo   !CYN!║!R!                          !DIM!web.telegram.org / t.me через hosts!R!                          !CYN!║!R!
 echo   !CYN!╚════════════════════════════════════════════════════════════════════════════════════════════╝!R!
 echo.
 call :status_line
@@ -238,7 +238,7 @@ echo   !GRY!^|!R!  Конфиг ............ !WHT!telegram-web-ip.cfg!R!!_P92!!G
 :st_after_ip
 set /a _bxp=50
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  Домены ............ !DIM!Web + WebSocket (QR)!R!!_P92!!GRY!^|!R!
+echo   !GRY!^|!R!  Домены ............ !DIM!Web + t.me + WebSocket!R!!_P92!!GRY!^|!R!
 call :box_bottom
 echo.
 exit /b 0
@@ -635,7 +635,7 @@ call :section "Включение"
 if not "!EN_ERR!"=="0" goto :en_apply_fail
 call :line_ok "hosts обновлен"
 call :line_ok "DNS сброшен"
-call :banner_ok "Включено - откройте web.telegram.org"
+call :banner_ok "Включено - web.telegram.org / t.me / telegram.me"
 call :wait
 goto :menu
 :en_no_cfg

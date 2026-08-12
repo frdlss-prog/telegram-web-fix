@@ -1,6 +1,6 @@
 # 📱 Telegram Web Fix
 
-Локально подбирает рабочий IP дата-центра Telegram и прописывает его в **`hosts`** для **[web.telegram.org](https://web.telegram.org)** (и доменов из `lists/telegram-hosts-domains.txt`). Без своего сервера и без смены системного прокси/VPN.
+Локально подбирает рабочий IP дата-центра Telegram и прописывает его в **`hosts`** для **[web.telegram.org](https://web.telegram.org)**, коротких ссылок **t.me** / **telegram.me** и доменов из `lists/telegram-hosts-domains.txt`. Без своего сервера и без смены системного прокси/VPN.
 
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)]()
@@ -29,7 +29,7 @@
 | Шаг | Что происходит |
 |-----|----------------|
 | **5** | Качает официальный **`cidr.txt`**, собирает **`lists/telegram-ip-candidates.txt`** — пул IPv4 для проверки. |
-| **4** | Строит **очередь**: IP из файла + DNS/DoH, проверяет **TCP 443** и **TLS (SNI)** для `web.telegram.org` и `kws2.web.telegram.org`; в cfg попадает только IP с успешным сертификатом. |
+| **4** | Строит **очередь**: IP из файла + DNS/DoH, проверяет **TCP 443** и **TLS (SNI)** для `web.telegram.org`, `kws2.web.telegram.org`, `telegram.me` и `t.me`; в cfg попадает только IP с успешным сертификатом. |
 | **1** | Вставляет в **`hosts`** блок строк `IP + домены` с маркером, делает **бэкап** в `backup/`, сбрасывает DNS-кэш. |
 | **2** | Удаляет только **наш** блок по маркеру, остальной `hosts` не трогает. |
 
@@ -81,7 +81,7 @@
 - Меняет **только локальный** файл `C:\Windows\System32\drivers\etc\hosts` на **вашем** ПК — блок с маркером `# telegram-web-fix` и фиксированным списком доменов из `lists/telegram-hosts-domains.txt`.
 - **Не** поднимает прокси, VPN, «посредника» и **не** подменяет сертификаты в браузере.
 - **Не** отправляет трафик автору репозитория и **не** расшифровывает переписку.
-- IP для проверки берутся из официального [cidr.txt](https://core.telegram.org/resources/cidr.txt) Telegram; в **[4]** адрес сохраняется только если **TLS-рукопожатие** для `web.telegram.org` и `kws2.web.telegram.org` прошло (сертификат проверяется так же, как при обычном HTTPS в браузере).
+- IP для проверки берутся из официального [cidr.txt](https://core.telegram.org/resources/cidr.txt) Telegram; в **[4]** адрес сохраняется только если **TLS-рукопожатие** для `web.telegram.org`, `kws2.web.telegram.org`, `telegram.me` и `t.me` прошло (сертификат проверяется так же, как при обычном HTTPS в браузере).
 
 То есть вы не «подключаетесь к случайному серверу в интернете», а направляете **известные домены Telegram** на **другой IP из пула Telegram**, когда обычный DNS отдаёт недоступный адрес.
 

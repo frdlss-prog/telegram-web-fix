@@ -2,6 +2,11 @@
 web.telegram.org
 webk.telegram.org
 weba.telegram.org
+# Short links (same DC TLS as web — telegram.me / t.me bot & invite URLs)
+telegram.me
+www.telegram.me
+t.me
+www.t.me
 kws2.web.telegram.org
 kws2-1.web.telegram.org
 kws4.web.telegram.org

@@ -214,8 +214,8 @@ function Test-Tnc443 {
 }
 
 function Get-TlsWebCheckHosts {
-    # Минимум для Telegram Web: страница + WebSocket (QR/сессия).
-    return @('web.telegram.org', 'kws2.web.telegram.org')
+    # Страница + WebSocket (QR) + короткие ссылки telegram.me / t.me на том же DC.
+    return @('web.telegram.org', 'kws2.web.telegram.org', 'telegram.me', 't.me')
 }
 
 function Test-IpPassesTlsForWeb {
@@ -811,7 +811,7 @@ if ($SkipPostTls) {
     Emit 'TLS' 'skip' 'TG_POST_TLS_OFF'
     Write-ScanDim '  TLS не проверяли (TG_POST_TLS_OFF=1) — только открытый порт 443.'
 } else {
-    Write-ScanStep 'Шаг 5. Итог: TLS для web.telegram.org и kws2.web.telegram.org'
+    Write-ScanStep 'Шаг 5. Итог: TLS для web, kws2, telegram.me и t.me'
     Emit 'TLS' 'ok' $found
     Write-ScanOk ("  HTTPS + WebSocket-хосты на {0} — сертификат принят" -f $found)
 }
@@ -828,7 +828,7 @@ if ($ShowProgress) {
     Write-ScanOk  '  ========== Готово =========='
     Write-ScanOk  ("  Рабочий IP:  {0}" -f $found)
     Write-ScanInfo '  Записан в telegram-web-ip.cfg рядом с bat.'
-    Write-ScanInfo '  В меню: [1] Включить, затем web.telegram.org в браузере.'
+    Write-ScanInfo '  В меню: [1] Включить, затем web.telegram.org или ссылку t.me / telegram.me.'
     Write-ScanUi ''
 }
 Exit-Scan 0
