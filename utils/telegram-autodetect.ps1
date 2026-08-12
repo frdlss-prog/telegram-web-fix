@@ -1,4 +1,4 @@
-# Auto-detect reachable Telegram DC IP, port 443 (log for telegram-web-fix.bat)
+﻿# Auto-detect reachable Telegram DC IP, port 443 (log for telegram-web-fix.bat)
 param(
     [Parameter(Mandatory = $true)]
     [string]$LogFile,

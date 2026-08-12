@@ -1,4 +1,4 @@
-# Один проход: при -LayoutCols при необходимости mode + TTF + Clear-Host (без отдельного mode/cls в bat).
+﻿# Один проход: при -LayoutCols при необходимости mode + TTF + Clear-Host (без отдельного mode/cls в bat).
 # При -RemountFont — только Try-SetFace (после видимого/скрытого PS conhost мог уйти в растр).
 #
 # P/Invoke берём из кеша (_twfcon-types.ps1) → csc.exe запускается ОДИН раз за всю сессию.

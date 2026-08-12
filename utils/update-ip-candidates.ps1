@@ -1,4 +1,4 @@
-# Rebuild lists/telegram-ip-candidates.txt from official Telegram IPv4 CIDRs.
+﻿# Rebuild lists/telegram-ip-candidates.txt from official Telegram IPv4 CIDRs.
 # Sources: Telegram site (direct + DoH) -> community mirrors (daily) -> bundled file.
 param(
     [string]$CidrUrl = 'https://core.telegram.org/resources/cidr.txt'

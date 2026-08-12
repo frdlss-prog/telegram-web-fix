@@ -1,4 +1,4 @@
-# Expand official Telegram IPv4 CIDR blocks into lists/telegram-ip-candidates-from-cidr.txt
+﻿# Expand official Telegram IPv4 CIDR blocks into lists/telegram-ip-candidates-from-cidr.txt
 # Usage: powershell -File utils\convert-cidr-to-candidates.ps1
 # Friend renames/copies output to lists\telegram-ip-candidates.txt
 

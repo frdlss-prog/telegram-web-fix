@@ -1,4 +1,4 @@
-# Принудительно ставим Consolas TTF в текущей консоли через SetCurrentConsoleFontEx.
+﻿# Принудительно ставим Consolas TTF в текущей консоли через SetCurrentConsoleFontEx.
 # Используется через dot-source: . "$PSScriptRoot\ensure-console-ttf.ps1"
 #
 # ВАЖНО: НЕ проверяем GetCurrentConsoleFontEx — он врёт.
