@@ -1,6 +1,6 @@
 # 📱 Telegram Web Fix
 
-Локально подбирает рабочий IP дата-центра Telegram и прописывает его в **`hosts`** для **[web.telegram.org](https://web.telegram.org)**, коротких ссылок **t.me** / **telegram.me** и доменов из `lists/telegram-hosts-domains.txt`. Без своего сервера и без смены системного прокси/VPN.
+Локально подбирает рабочий IP дата-центра Telegram и прописывает его в **`hosts`** для **[web.telegram.org/k/](https://web.telegram.org/k/)**, коротких ссылок **t.me** / **telegram.me** и доменов из `lists/telegram-hosts-domains.txt`. Без своего сервера и без смены системного прокси/VPN.
 
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)]()
@@ -16,7 +16,7 @@
 2. ▶️ Запустите **`telegram-web-fix.bat`**. Подтвердите UAC («Да») — меню откроется с правами администратора.
 3. 🔢 Обычно: **`5`** (обновить список IP из Telegram), затем **`4`** (поиск). Если **`lists/telegram-ip-candidates.txt`** уже заполнен — можно сразу **`4`**.
 4. ✅ Нажмите **`1`** — запись блока в `hosts`, затем **`ipconfig /flushdns`**.
-5. 🌐 Откройте **web.telegram.org** в браузере (нужен WebSocket).
+5. 🌐 Откройте **https://web.telegram.org/k/** (или `/a/`). Корень **web.telegram.org/** без пути — старый Webogram и часто даёт **серый экран**; это не баг `hosts`.
 
 ⛔ Выключить fix: **`2`** в меню (удаляется только блок с маркером `# telegram-web-fix`).
 
@@ -187,7 +187,7 @@
 ## 🩹 Если что-то не так
 
 - **Нет IP после [4]** — сеть до DC на 443 недоступна; попробуйте **[5]**, другую сеть или VPN. Сводка в блоке «Отчёт» после скана.  
-- **Сайт не открылся / серый экран, иконка крутится** — снова **4 → 1**, `ipconfig /flushdns`, отключите **защищённый DNS** в браузере, проверьте **F12 → Сеть** (ошибки на `kws*.web.telegram.org`). В **[4]** должен быть **TLS ok**, не только «порт открыт».  
+- **Сайт не открылся / серый экран** — если адрес без `/k/` или `/a/` (просто `web.telegram.org/`), Telegram отдаёт **старый Webogram** → откройте **https://web.telegram.org/k/**. Иначе: снова **4 → 1**, `ipconfig /flushdns`, отключите **защищённый DNS** и прокси (Happ и т.п.), F12 → Сеть (`kws*.web.telegram.org`). В **[4]** нужен **TLS ok**, не только «порт открыт».  
 - **Долго тишина при [4]** — обычно DNS или таймаут волны TCP; дождитесь конца или уменьшите список в `telegram-ip-candidates.txt`.  
 - **Не грузится QR** — fix должен быть включён (**1**); новый домен в DevTools — issue в репозитории.  
 - **Окно сразу закрывается / кракозябры** — не сохраняйте `.bat` с **UTF-8 BOM** перед `@echo off` и не в **CP1251**; нужен Windows 10 не старее **1903**.  

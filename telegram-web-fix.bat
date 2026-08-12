@@ -613,7 +613,7 @@ echo.
 if defined TG_IP echo   !GRN!^>^>^> Рабочий IP: !TG_IP!!R!
 if not defined TG_IP if not "!DETECT_OK!"=="0" echo   !RED!^>^> IP не найден!R!
 if not defined TG_IP if not "!DETECT_OK!"=="0" if not exist "%SCAN_LOG%" echo   !RED!Скан не записал лог — %TEMP%!R!
-if defined TG_IP echo   !GRN!Дальше: [1] Включить  —  web.telegram.org!R!
+if defined TG_IP echo   !GRN!Дальше: [1] Включить  —  затем web.telegram.org/k/!R!
 echo.
 echo   !WHT!Готово.!R!
 echo   !DIM!  Нажмите любую клавишу, чтобы вернуться в меню...!R!
@@ -635,7 +635,9 @@ call :section "Включение"
 if not "!EN_ERR!"=="0" goto :en_apply_fail
 call :line_ok "hosts обновлен"
 call :line_ok "DNS сброшен"
-call :banner_ok "Включено - web.telegram.org / t.me / telegram.me"
+call :line_info "Корень web.telegram.org/ — старый Webogram (серый экран). Нужен /k/ или /a/"
+call :banner_ok "Включено - открываем web.telegram.org/k/"
+start "" "https://web.telegram.org/k/"
 call :wait
 goto :menu
 :en_no_cfg

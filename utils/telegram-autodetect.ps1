@@ -839,7 +839,7 @@ if ($ShowProgress) {
     Write-ScanOk  '  ========== Готово =========='
     Write-ScanOk  ("  Рабочий IP:  {0}" -f $found)
     Write-ScanInfo '  Записан в telegram-web-ip.cfg рядом с bat.'
-    Write-ScanInfo '  В меню: [1] Включить, затем web.telegram.org или ссылку t.me / telegram.me.'
+    Write-ScanInfo '  В меню: [1] Включить — откроется web.telegram.org/k/ (корень / без пути — старый Webogram, серый экран).'
     Write-ScanUi ''
 }
 Exit-Scan 0
