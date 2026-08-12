@@ -5,7 +5,10 @@ cd /d "%~dp0"
 title Telegram Web Fix
 set "TWF_COLS=100"
 set "TWF_LINES=40"
+rem 32-bit cmd на 64-bit Windows: System32 → SysWOW64, реального hosts там нет.
 set "HOSTS=%SystemRoot%\System32\drivers\etc\hosts"
+if exist "%SystemRoot%\Sysnative\drivers\etc\hosts" set "HOSTS=%SystemRoot%\Sysnative\drivers\etc\hosts"
+if not exist "%HOSTS%" if exist "%SystemRoot%\Sysnative\drivers\etc" set "HOSTS=%SystemRoot%\Sysnative\drivers\etc\hosts"
 set "MARKER=# telegram-web-fix"
 set "MARKER_LEGACY=# zapret-telegram-web-fix"
 set "CFG=%~dp0telegram-web-ip.cfg"
@@ -168,8 +171,10 @@ exit /b 0
 :apply_hosts
 if not exist "%PS_HOSTS%" exit /b 1
 if not exist "%DOMAINS%" exit /b 1
-set "PS_CMD=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS_HOSTS%" -Action Apply -Ip "%TG_IP%" -DomainsFile "%DOMAINS%" -BackupDir "%BACKUP%""
-call :run_ps_hosts
+set "HOSTS_ERR=%TEMP%\twf_hosts_err.log"
+del "!HOSTS_ERR!" >nul 2>&1
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%PS_HOSTS%" -Action Apply -Ip "%TG_IP%" -DomainsFile "%DOMAINS%" -BackupDir "%BACKUP%" 1>nul 2>"!HOSTS_ERR!"
+set "PS_EXIT=!errorlevel!"
 if not "!PS_EXIT!"=="0" exit /b 1
 call :fix_after_hidden_ps
 ipconfig /flushdns >nul
@@ -177,8 +182,10 @@ exit /b 0
 :disable_hosts_silent
 set "DH_OK=1"
 if not exist "%PS_HOSTS%" exit /b 1
-set "PS_CMD=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS_HOSTS%" -Action Remove -DomainsFile "%DOMAINS%""
-call :run_ps_hosts
+set "HOSTS_ERR=%TEMP%\twf_hosts_err.log"
+del "!HOSTS_ERR!" >nul 2>&1
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%PS_HOSTS%" -Action Remove -DomainsFile "%DOMAINS%" 1>nul 2>"!HOSTS_ERR!"
+set "PS_EXIT=!errorlevel!"
 if not "!PS_EXIT!"=="0" exit /b 1
 rem Verify после Remove убран: при успешном удалении он часто давал exit 1
 rem (кодировка/чужие строки в hosts), bat показывал «Нет доступа», хотя fix уже снят.
@@ -652,15 +659,28 @@ goto :menu
 set "HOSTS_MSG="
 if exist "!HOSTS_ERR!" (
     for /f "usebackq delims=" %%L in ("!HOSTS_ERR!") do (
-        set "HOSTS_MSG=%%L"
-        goto :show_hosts_ps_err_done
+        echo %%L | findstr /i /c:"tg-hosts:" >nul 2>&1
+        if not errorlevel 1 (
+            set "HOSTS_MSG=%%L"
+            goto :show_hosts_ps_err_done
+        )
+    )
+    for /f "usebackq delims=" %%L in ("!HOSTS_ERR!") do (
+        echo %%L | findstr /b /c:"At " >nul 2>&1
+        if errorlevel 1 (
+            echo %%L | findstr /b /c:"+" >nul 2>&1
+            if errorlevel 1 (
+                set "HOSTS_MSG=%%L"
+                goto :show_hosts_ps_err_done
+            )
+        )
     )
 )
 :show_hosts_ps_err_done
 if defined HOSTS_MSG (
     call :line_info "!HOSTS_MSG!"
 ) else (
-    call :line_info "Запуск от администратора; hosts не только для чтения; антивирус может блокировать"
+    call :line_info "Нужен запуск от администратора; hosts не read-only; антивирус может блокировать запись"
 )
 exit /b 0
 :disable

@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][ValidateSet('Apply', 'Remove', 'Verify')][string]$Action,
     [string]$Ip = '',
-    [string]$HostsPath = "$env:SystemRoot\System32\drivers\etc\hosts",
+    [string]$HostsPath = '',
     [string]$Marker = '# telegram-web-fix',
     [string]$DomainsFile = '',
     [string]$BackupDir = ''
@@ -24,6 +24,29 @@ $domainAlt = ($domains | ForEach-Object { [regex]::Escape($_) }) -join '|'
 $lineRe = "^\s*\d{1,3}(?:\.\d{1,3}){3}\s+(?:$domainAlt)\s*$"
 $MarkerLegacy = '# zapret-telegram-web-fix'
 
+function Resolve-HostsPath {
+    param([string]$Preferred = '')
+    $default32 = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+    $sysnative = Join-Path $env:SystemRoot 'Sysnative\drivers\etc\hosts'
+
+    # Явный кастомный путь (тесты/override) — не перенаправляем.
+    if ($Preferred -and ($Preferred -ne $default32) -and ($Preferred -ne $sysnative)) {
+        return $Preferred
+    }
+
+    # 32-bit PS на 64-bit Windows: System32 редиректится в SysWOW64 — реальный hosts через Sysnative.
+    if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+        if (Test-Path -LiteralPath $sysnative) { return $sysnative }
+        $sysnativeDir = Split-Path -Parent $sysnative
+        if (Test-Path -LiteralPath $sysnativeDir) { return $sysnative }
+    }
+
+    if ($Preferred) { return $Preferred }
+    return $default32
+}
+
+$HostsPath = Resolve-HostsPath -Preferred $HostsPath
+
 function Get-NormalLine {
     param([string]$Line)
     if ($null -eq $Line) { return '' }
@@ -40,6 +63,35 @@ function Unlock-HostsFile {
     try {
         $null = & cmd.exe /c "attrib -R `"$Path`"" 2>$null
     } catch {}
+}
+
+function Ensure-HostsFile {
+    if (Test-Path -LiteralPath $HostsPath) { return }
+    $dir = Split-Path -Parent $HostsPath
+    if (-not (Test-Path -LiteralPath $dir)) {
+        try {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        } catch {
+            throw "Cannot create hosts directory ($dir): $($_.Exception.Message)"
+        }
+    }
+    # Minimal default like a fresh Windows hosts (file often deleted by cleaners).
+    $seed = @(
+        '# Copyright (c) 1993-2009 Microsoft Corp.',
+        '#',
+        '# This is a sample HOSTS file used by Microsoft TCP/IP for Windows.',
+        '#',
+        '# localhost name resolution is handled within DNS itself.',
+        '#	127.0.0.1       localhost',
+        '#	::1             localhost',
+        ''
+    ) -join "`r`n"
+    try {
+        $enc = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($HostsPath, $seed + "`r`n", $enc)
+    } catch {
+        throw "Cannot create hosts ($HostsPath): $($_.Exception.Message). Запустите от администратора; антивирус может блокировать создание файла."
+    }
 }
 
 function Read-HostsLines {
@@ -77,9 +129,7 @@ function Remove-OurLines([System.Collections.ArrayList]$lines) {
 }
 
 function Write-Lines([System.Collections.ArrayList]$lines) {
-    if (-not (Test-Path -LiteralPath $HostsPath)) {
-        throw "Hosts not found: $HostsPath"
-    }
+    Ensure-HostsFile
     Unlock-HostsFile $HostsPath
     $text = ($lines.ToArray() -join "`r`n").TrimEnd() + "`r`n"
     try {
@@ -96,6 +146,7 @@ function Write-Lines([System.Collections.ArrayList]$lines) {
 
 function Backup-Hosts {
     if (-not $BackupDir) { return }
+    if (-not (Test-Path -LiteralPath $HostsPath)) { return }
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
     $dest = Join-Path $BackupDir 'hosts.backup'
     if (-not (Test-Path -LiteralPath $dest)) {
@@ -106,6 +157,9 @@ function Backup-Hosts {
 trap {
     $msg = $_.Exception.Message
     if ([string]::IsNullOrWhiteSpace($msg)) { $msg = $_.ToString() }
+    if ($msg -match '(?i)access|denied|отказано|запрещен|Unauthorized') {
+        $msg = "нет доступа к hosts — запустите bat от имени администратора (UAC)"
+    }
     if ($msg.Length -gt 240) { $msg = $msg.Substring(0, 240).TrimEnd() }
     [Console]::Error.WriteLine("tg-hosts: $msg")
     exit 1
@@ -114,7 +168,8 @@ trap {
 switch ($Action) {
     'Apply' {
         if (-not $Ip -or $Ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw "Invalid IP: $Ip" }
-        if (-not (Test-Path -LiteralPath $HostsPath)) { throw "Hosts not found: $HostsPath" }
+        # Hosts часто удаляют «чистильщики» — создаём заново, не падаем с «Hosts not found».
+        Ensure-HostsFile
         Backup-Hosts
         $lines = New-LineList
         $r = Remove-OurLines $lines
@@ -125,7 +180,8 @@ switch ($Action) {
         exit 0
     }
     'Remove' {
-        if (-not (Test-Path -LiteralPath $HostsPath)) { throw "Hosts not found: $HostsPath" }
+        # Нет файла — нечего снимать.
+        if (-not (Test-Path -LiteralPath $HostsPath)) { exit 0 }
         $lines = New-LineList
         $r = Remove-OurLines $lines
         Write-Lines $r.Keep
