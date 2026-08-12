@@ -285,7 +285,19 @@ function Test-TlsClient443 {
 
 function Add-Ipv4ToSet([System.Collections.Generic.HashSet[string]]$Set, [string]$Ip) {
     if ($Ip -and $Ip -match '^\d{1,3}(\.\d{1,3}){3}$') {
-        [void]$Set.Add($Ip.Trim())
+        return [bool]$Set.Add($Ip.Trim())
+    }
+    return $false
+}
+
+function Add-DnsIpv4 {
+    param(
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$Set,
+        [Parameter(Mandatory)][System.Collections.ArrayList]$Order,
+        [Parameter(Mandatory)][string]$Ip
+    )
+    if (Add-Ipv4ToSet $Set $Ip) {
+        [void]$Order.Add($Ip.Trim())
     }
 }
 
@@ -423,6 +435,7 @@ foreach ($j in $dnsJobs) {
 }
 
 $dnsSet = New-Object 'System.Collections.Generic.HashSet[string]'
+$dnsOrder = New-Object System.Collections.ArrayList
 $dnsFirst = $null
 $dnsServersOk = 0
 
@@ -439,7 +452,7 @@ for ($ji = 0; $ji -lt $dnsServerList.Count; $ji++) {
     if ($dnsOut) {
         foreach ($r in ($dnsOut | Where-Object { $_.IPAddress -match '^\d+\.' })) {
             $anyA = $true
-            Add-Ipv4ToSet $dnsSet $r.IPAddress
+            Add-DnsIpv4 -Set $dnsSet -Order $dnsOrder -Ip $r.IPAddress
             if (-not $dnsFirst) { $dnsFirst = $r.IPAddress.Trim() }
         }
     }
@@ -497,7 +510,7 @@ foreach ($name in $extraResolve) {
     $addrs = Resolve-NameA $name
     if ($addrs.Count -gt 0) {
         foreach ($a in $addrs) {
-            Add-Ipv4ToSet $dnsSet $a
+            Add-DnsIpv4 -Set $dnsSet -Order $dnsOrder -Ip $a
         }
         if ($dsShown -lt $dsMaxShow) {
             Write-ScanOk ("  {0,-28}  ->  {1}" -f $name, ($addrs -join ', '))
@@ -592,7 +605,7 @@ foreach ($dohDomain in $dohNames) {
         }
     }
     foreach ($ip in $got) {
-        Add-Ipv4ToSet $dnsSet $ip
+        Add-DnsIpv4 -Set $dnsSet -Order $dnsOrder -Ip $ip
     }
 }
 Clear-ScanSpinnerLine
@@ -612,15 +625,13 @@ if (Test-Path -LiteralPath $ListFile) {
         Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' })
 }
 
+# DNS/DoH IP — в начало очереди: чаще живой DC, иначе полный список тянется минутами.
 $queue = New-Object System.Collections.ArrayList
+foreach ($ip in $dnsOrder) {
+    [void]$queue.Add($ip)
+}
 foreach ($ip in $fileList) {
     if (-not $dnsSet.Contains($ip)) { [void]$queue.Add($ip) }
-}
-foreach ($ip in $fileList) {
-    if ($dnsSet.Contains($ip)) { [void]$queue.Add($ip) }
-}
-foreach ($ip in $dnsSet) {
-    if ($fileList -notcontains $ip) { [void]$queue.Add($ip) }
 }
 
 $seen = @{}
@@ -675,7 +686,7 @@ Emit 'Q' ([string]$candidates.Count) ([string]$Parallel)
 Emit 'MS' ([string]$TcpTimeoutMs)
 
 Emit 'SEC' 'TCP — порт 443'
-Write-ScanStep ("Шаг 4. TCP :443 — очередь из lists\telegram-ip-candidates.txt + DNS (из файла {0}, всего {1}; по {2} параллельно)" -f $fileList.Count, $candidates.Count, $Parallel)
+Write-ScanStep ("Шаг 4. TCP :443 — сначала DNS/DoH, затем lists\telegram-ip-candidates.txt (из файла {0}, всего {1}; по {2} параллельно)" -f $fileList.Count, $candidates.Count, $Parallel)
 Write-ScanInfo ("  Таймаут на группу: до {0} мс." -f $TcpTimeoutMs)
 
 $found = $null
