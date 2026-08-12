@@ -200,7 +200,7 @@ exit /b 0
 echo.
 echo   !CYN!╔════════════════════════════════════════════════════════════════════════════════════════════╗!R!
 echo   !CYN!║!R!                                     !GRN!TELEGRAM WEB FIX!R!                                       !CYN!║!R!
-echo   !CYN!║!R!                          !DIM!web.telegram.org / t.me через hosts!R!                          !CYN!║!R!
+echo   !CYN!║!R!                            !DIM!web.telegram.org / t.me через hosts!R!                           !CYN!║!R!
 echo   !CYN!╚════════════════════════════════════════════════════════════════════════════════════════════╝!R!
 echo.
 call :status_line
