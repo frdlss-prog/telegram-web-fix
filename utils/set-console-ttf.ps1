@@ -26,11 +26,11 @@ if (-not ('TwfCon' -as [type])) {
     exit 0
 }
 
-function Get-CmdExeConsoleRegPath {
-    $exe = Join-Path $env:SystemRoot 'System32\cmd.exe'
-    if ($exe.Length -lt 4) { return $null }
-    $tail = $exe.Substring(3).Replace('\', '_')
-    return $exe[0] + ':_' + $tail
+function Get-ExeConsoleRegName {
+    param([string]$Exe)
+    if (-not $Exe -or $Exe.Length -lt 4) { return $null }
+    $tail = $Exe.Substring(3).Replace('\', '_')
+    return $Exe[0] + ':_' + $tail
 }
 
 function Apply-ConsoleRegistryFont {
@@ -86,10 +86,21 @@ if (-not (Test-Path -LiteralPath $root)) {
 }
 Set-ItemProperty -LiteralPath $root -Name 'ForceV2' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
 
-$cmdSub = Get-CmdExeConsoleRegPath
 $regTargets = @($root)
-if ($cmdSub) {
-    $regTargets += (Join-Path $root $cmdSub)
+$cmdName = Get-ExeConsoleRegName -Exe (Join-Path $env:SystemRoot 'System32\cmd.exe')
+if ($cmdName) { $regTargets += (Join-Path $root $cmdName) }
+
+# powershell.exe при старте в этом же окне читает свой ключ и ставит растр, если там пусто.
+$fontTargets = @($regTargets)
+$psName = Get-ExeConsoleRegName -Exe (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+if ($psName) { $fontTargets += (Join-Path $root $psName) }
+foreach ($title in @(
+    'Telegram Web Fix',
+    'Administrator: Telegram Web Fix',
+    'Администратор: Telegram Web Fix',
+    'Администратор: Administrator: Telegram Web Fix'
+)) {
+    $fontTargets += (Join-Path $root $title)
 }
 
 if (-not $RemountFont) {
@@ -119,7 +130,7 @@ $size = [uint32][Runtime.InteropServices.Marshal]::SizeOf([Type][TwfCon+CONSOLE_
 
 function Try-SetFace {
     param([string]$face, [int]$fontY)
-    foreach ($reg in $regTargets) {
+    foreach ($reg in $script:fontTargets) {
         try {
             Apply-ConsoleRegistryFont -Face $face -RegPath $reg
         } catch { }
@@ -169,6 +180,7 @@ if (-not $RemountFont) {
     }
 }
 
+# Consolas — тот же вид, что у сплошных рамок в меню. Cascadia только запасной.
 $faces = @(
     @{ N = 'Consolas'; Y = 20 },
     @{ N = 'Consolas'; Y = 18 },

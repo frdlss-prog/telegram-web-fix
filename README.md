@@ -115,11 +115,11 @@
 
 ## 🛡️ Антивирусы и VirusTotal
 
-**В проекте нет вирусов, троянов и шпионского ПО.** Исходники открыты (MIT): только текстовые `.bat` / `.ps1`, списки IP и доменов. Отдельного `.exe` в репозитории **нет** — запускается штатный **`powershell.exe`** и **`cmd.exe`** из Windows.
+**В проекте нет вирусов, троянов и шпионского ПО.** Исходники открыты (MIT): только текстовые `.bat` / `.ps1`, списки IP и доменов. В git **нет** `.exe` и `.dll` — запускается штатный **`powershell.exe`** и **`cmd.exe`** из Windows.
 
 ### Что обычно проверяют на VirusTotal
 
-Чаще всего загружают архив **`telegram-web-fix.zip`** (кнопка **Code → Download ZIP** или файл в релизе на GitHub) — целиком, ~36 KB. У такого ZIP в отчёте может быть метка **`contains-pe`**: внутри лежит не «вирус», а **DLL для консоли** (см. ниже) или срабатывание эвристики на скрипты.
+Чаще всего загружают архив **`telegram-web-fix.zip`** (кнопка **Code → Download ZIP** или файл в релизе на GitHub). У архива из git метки **`contains-pe`** быть не должно: бинарников в репозитории нет. Метка появляется, если в ZIP попала локальная DLL консоли после запуска (см. ниже) или если сработала эвристика на скрипты.
 
 Пример отчёта (цифры со временем меняются): **11 / 63** движков, подпись вроде `trojan.misc`, `Win32:MalwareX-gen [Misc]`, `Mal/Generic-S` — это **эвристика**, не доказанный вредонос. Остальные движки файл **не** помечают.
 
@@ -148,9 +148,9 @@
 | **`telegram-web-fix.bat`** | Меню, UAC, вызов PowerShell |
 | **`utils\tg-hosts.ps1`** | Запись/удаление блока в `hosts` |
 | **`utils\telegram-autodetect.ps1`** | Поиск IP, TCP/TLS |
-| **`utils\_twfcon-types.ps1`** | При **первом** запуске может собрать **`twf-console-types-v2.dll`** (в `%TEMP%` или рядом с `utils\`) — маленькая DLL только для **шрифта консоли**, не для сети и не для Telegram |
+| **`utils\_twfcon-types.ps1`** | При **первом** запуске собирает **`twf-console-types-v2.dll`** в **`%TEMP%`** — только шрифт консоли, не сеть и не Telegram. В git эта DLL не лежит |
 
-Если в ZIP попала **`utils\twf-console-types-v2.dll`** (собрана у вас после первого запуска), VirusTotal помечает архив как **`contains-pe`** — это **ожидаемо**, не отдельный установщик.
+Если упаковать папку уже после запуска и в ZIP попадёт **`utils\twf-console-types-v2.dll`**, VirusTotal помечает архив как **`contains-pe`**. В клоне с GitHub этого файла нет.
 
 **Не путать:** проект **не** подменяет `telegram.exe`, **не** ставит расширения в браузер, **не** шифрует файлы и **не** отправляет данные на сторонний сервер.
 
@@ -159,7 +159,7 @@
 1. **Предпочтительно:** клонировать репозиторий с GitHub и запускать **`telegram-web-fix.bat`** из папки — не сомнительные зеркала.
 2. Прочитать **`utils\tg-hosts.ps1`** и **`telegram-web-fix.bat`** — логика только `hosts` + проверка IP Telegram.
 3. Добавить папку проекта в **исключения** Defender/антивируса, если доверяете исходникам.
-4. На VirusTotal смотреть не только красные строки, но и **сколько движков молчат**; при сомнении — сравнить **SHA-256** своего ZIP с [релизом](https://github.com/frdlss/telegram-web-hosts-fix) или пересобрать ZIP из git.
+4. На VirusTotal смотреть не только красные строки, но и **сколько движков молчат**; при сомнении — сравнить **SHA-256** своего ZIP с [релизом](https://github.com/frdlss/telegram-web-fix) или пересобрать ZIP из git.
 
 Сообщения вроде *«Win32:MalwareX-gen»*, *«Trojan.Win32.Agent»*, *«Mal/Generic-S»* у части вендоров для таких утилит — типичный **false positive**. Если нашли реальное вредоносное поведение (сеть не на Telegram, чужие домены в `hosts`) — откройте **Issue** с деталями.
 
@@ -171,14 +171,14 @@
 |------|------------|
 | `telegram-web-fix.bat` | Меню, UAC, вызовы PowerShell |
 | `utils/set-console-ttf.ps1` | Шрифт/размер консоли (UTF-8, рамки) |
-| `utils/_twfcon-types.ps1` | P/Invoke консоли; при первом запуске может создать `twf-console-types-v2.dll` |
+| `utils/_twfcon-types.ps1` | P/Invoke консоли; при первом запуске создаёт `twf-console-types-v2.dll` в `%TEMP%` |
 | `utils/telegram-autodetect.ps1` | Пункт **4** |
 | `utils/update-ip-candidates.ps1` | Пункт **5** |
 | `utils/tg-hosts.ps1` | Запись/снятие `hosts` |
 | `lists/telegram-ip-candidates.txt` | Список IPv4 для скана |
 | `lists/telegram-hosts-domains.txt` | Домены для `hosts` |
 | `telegram-web-ip.cfg` | Найденный IP (после **4**) |
-| `backup/` | Копия `hosts` при первом включении |
+| `backup/` | `hosts.backup` — первый снимок до фикса; `hosts-last.backup` — снимок перед каждой записью |
 
 Консоль: в начале выставляется **`chcp 65001`**, bat в **UTF-8 без BOM**. Если шрифт «ломается», в свойствах окна выберите **Consolas** / **Cascadia Mono** или запускайте из [**Windows Terminal**](https://aka.ms/terminal).
 

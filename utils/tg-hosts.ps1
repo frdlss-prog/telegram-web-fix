@@ -11,6 +11,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# До любой другой работы: powershell.exe при старте мог поставить растровый шрифт.
+$ttfHelper = Join-Path $PSScriptRoot 'ensure-console-ttf.ps1'
+if (Test-Path -LiteralPath $ttfHelper) { . $ttfHelper }
+
 if (-not $DomainsFile) { throw 'DomainsFile required' }
 if (-not (Test-Path -LiteralPath $DomainsFile)) { throw "Domains file not found: $DomainsFile" }
 
@@ -21,7 +25,8 @@ $domains = Get-Content -LiteralPath $DomainsFile |
 if (-not $domains) { throw 'No domains in list' }
 
 $domainAlt = ($domains | ForEach-Object { [regex]::Escape($_) }) -join '|'
-$lineRe = "^\s*\d{1,3}(?:\.\d{1,3}){3}\s+(?:$domainAlt)\s*$"
+# Строка нашего блока: IPv4 фикса или ::1, чтобы AAAA не уводил браузер мимо hosts.
+$lineRe = "^\s*(?:\d{1,3}(?:\.\d{1,3}){3}|::1)\s+(?:$domainAlt)\s*$"
 $MarkerLegacy = '# zapret-telegram-web-fix'
 
 function Resolve-HostsPath {
@@ -117,12 +122,24 @@ function New-LineList {
 }
 
 function Remove-OurLines([System.Collections.ArrayList]$lines) {
+    # Только блок под маркером. Чужая строка «IP t.me» без маркера остаётся.
     $removed = 0
     $keep = New-Object System.Collections.ArrayList
+    $inBlock = $false
     foreach ($l in $lines) {
         $n = Get-NormalLine $l
-        if ($n -eq $Marker -or $n -eq $MarkerLegacy) { $removed++; continue }
-        if ($n -match $lineRe) { $removed++; continue }
+        if ($n -eq $Marker -or $n -eq $MarkerLegacy) {
+            $inBlock = $true
+            $removed++
+            continue
+        }
+        if ($inBlock) {
+            if ($n -match $lineRe) {
+                $removed++
+                continue
+            }
+            $inBlock = $false
+        }
         [void]$keep.Add([string]$l)
     }
     return @{ Keep = $keep; Removed = $removed }
@@ -148,6 +165,8 @@ function Backup-Hosts {
     if (-not $BackupDir) { return }
     if (-not (Test-Path -LiteralPath $HostsPath)) { return }
     New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+    $last = Join-Path $BackupDir 'hosts-last.backup'
+    Copy-Item -LiteralPath $HostsPath -Destination $last -Force
     $dest = Join-Path $BackupDir 'hosts.backup'
     if (-not (Test-Path -LiteralPath $dest)) {
         Copy-Item -LiteralPath $HostsPath -Destination $dest -Force
@@ -176,6 +195,8 @@ switch ($Action) {
         [void]$r.Keep.Add('')
         [void]$r.Keep.Add($Marker)
         foreach ($d in $domains) { [void]$r.Keep.Add("$Ip $d") }
+        # Иначе браузер берёт AAAA из DNS и обходит IPv4-запись в hosts.
+        foreach ($d in $domains) { [void]$r.Keep.Add("::1 $d") }
         Write-Lines $r.Keep
         exit 0
     }
@@ -191,12 +212,11 @@ switch ($Action) {
         if (Test-Path -LiteralPath $HostsPath) {
             foreach ($l in Get-Content -LiteralPath $HostsPath) {
                 $n = Get-NormalLine $l
-                if ($n -eq $Marker -or $n -eq $MarkerLegacy) { $left++; continue }
-                if ($n -match $lineRe) { $left++ }
+                if ($n -eq $Marker -or $n -eq $MarkerLegacy) { $left++ }
             }
         }
         if ($left -gt 0) {
-            [Console]::Error.WriteLine("tg-hosts: после Remove осталось строк с маркером/доменами: $left (проверьте hosts вручную)")
+            [Console]::Error.WriteLine("tg-hosts: после Remove маркер остался в hosts ($left). Проверьте файл вручную.")
         }
         exit 0
     }
@@ -205,8 +225,7 @@ switch ($Action) {
         $left = 0
         foreach ($l in Get-Content -LiteralPath $HostsPath) {
             $n = Get-NormalLine $l
-            if ($n -eq $Marker -or $n -eq $MarkerLegacy) { $left++; continue }
-            if ($n -match $lineRe) { $left++ }
+            if ($n -eq $Marker -or $n -eq $MarkerLegacy) { $left++ }
         }
         if ($left -gt 0) { exit 1 }
         exit 0

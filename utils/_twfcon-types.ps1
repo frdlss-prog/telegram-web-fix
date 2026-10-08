@@ -1,4 +1,5 @@
-﻿# Кеш [TwfCon]: сначала utils\twf-console-types-v2.dll (без csc), иначе TEMP или компиляция.
+﻿# Кеш [TwfCon]: локальная DLL рядом со скриптом (если осталась от старого запуска), иначе %TEMP% или компиляция.
+# В git DLL нет — VirusTotal иначе ставит contains-pe.
 #
 # Использование: . "$PSScriptRoot\_twfcon-types.ps1"
 # После dot-source доступны: [TwfCon] (P/Invoke методы) и [TwfCon+CONSOLE_FONT_INFOEX] (struct).

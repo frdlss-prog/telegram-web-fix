@@ -1,4 +1,13 @@
 @echo off
+rem Без прав — сразу скрытый запрос UAC и выход. Это окно не рисуем и не держим.
+if /i "%~1"=="__run" goto :prep
+if /i "%~1"=="enable-silent" goto :prep
+if /i "%~1"=="disable-silent" goto :prep
+fltmc >nul 2>&1
+if %errorlevel% equ 0 goto :prep
+start "" wscript.exe //nologo //B "%~dp0utils\elevate.vbs" "%~f0"
+exit /b 0
+:prep
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul 2>&1
 cd /d "%~dp0"
@@ -23,24 +32,12 @@ if /i "%~1"=="__run" (
     shift /1
     goto :bootstrap
 )
-net session >nul 2>&1
-if %errorlevel% equ 0 goto :bootstrap
-cls
-echo.
-echo   Telegram Web Fix
-echo   Подтвердите UAC - нажмите "Да"
-echo.
-echo   Это окно закроется. Основное откроется отдельно - смотрите панель задач.
-echo.
-set "UACVBS=%TEMP%\twf_elev_%RANDOM%.vbs"
->"%UACVBS%" echo Set sh = CreateObject("Shell.Application"^)
->>"%UACVBS%" echo sh.ShellExecute "%~f0", "__run", "%~dp0", "runas", 1
-wscript //B "%UACVBS%"
-del "%UACVBS%" >nul 2>&1
-exit /b 0
+goto :bootstrap
 :bootstrap
 @echo off
 chcp 65001 >nul 2>&1
+rem Шрифт в реестре до первого powershell: иначе каждый пункт на полсекунды падает в растр.
+call :pin_console_font
 rem Шрифт/layout до init_esc: for /f для ESC раньше давал лишний «миг» после chcp.
 call :setup_console
 rem ESC-коды один раз: переменные R/GRN/... сохраняются на всю сессию.
@@ -48,14 +45,14 @@ call :init_esc
 call :load_ip
 goto :menu
 :enable_cli
-net session >nul 2>&1
+fltmc >nul 2>&1
 if %errorlevel% neq 0 exit /b 1
 call :require_cfg
 if errorlevel 1 exit /b 2
 call :apply_hosts
 exit /b %errorlevel%
 :disable_cli
-net session >nul 2>&1
+fltmc >nul 2>&1
 if %errorlevel% neq 0 exit /b 1
 call :hosts_has_fix_marker
 if "!FIX_ON!"=="0" exit /b 0
@@ -107,13 +104,34 @@ if exist "%~dp0utils\set-console-ttf.ps1" (
 )
 exit /b 0
 :wait_any_key
-rem Любая клавиша: TIMEOUT /T -1 (см. timeout /?). После него в буфере conhost
-rem иногда остаётся хвост — следующий set /p в :menu съедает символ сразу;
-rem если это «0», срабатывает [0] Выход. Короткий PS сбрасывает хвост.
-rem Вложенный powershell.exe снова может увести conhost в растр — сразу RemountFont.
-timeout /t -1 >nul 2>&1
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NoP -Command "try { for ($i=0; $i -lt 32 -and [Console]::KeyAvailable; $i++) { [void][Console]::ReadKey($true) } } catch {}" >nul 2>&1
-call :fix_after_hidden_ps
+rem pause сам забирает клавишу. powershell здесь не запускаем:
+rem его старт переключал уже нарисованный экран на растровый шрифт.
+pause >nul
+exit /b 0
+:pin_console_font
+rem Consolas 20 для этого окна и для powershell.exe. Иначе дочерний PS
+rem при старте ставит точечный Terminal, и кадр мигает на каждом пункте.
+reg add "HKCU\Console" /v ForceV2 /t REG_DWORD /d 1 /f >nul 2>&1
+call :pin_font_key "HKCU\Console"
+call :pin_font_key "HKCU\Console\Telegram Web Fix"
+call :pin_font_key "HKCU\Console\Administrator: Telegram Web Fix"
+call :pin_font_key "HKCU\Console\Администратор: Telegram Web Fix"
+call :pin_font_key "HKCU\Console\Администратор: Administrator: Telegram Web Fix"
+call :pin_font_exe "%SystemRoot%\System32\cmd.exe"
+call :pin_font_exe "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+exit /b 0
+:pin_font_exe
+set "TWF_EXE=%~1"
+set "TWF_TAIL=!TWF_EXE:~3!"
+set "TWF_TAIL=!TWF_TAIL:\=_!"
+call :pin_font_key "HKCU\Console\!TWF_EXE:~0,1!:_!TWF_TAIL!"
+set "TWF_EXE=" & set "TWF_TAIL="
+exit /b 0
+:pin_font_key
+reg add "%~1" /v FaceName /t REG_SZ /d "Consolas" /f >nul 2>&1
+reg add "%~1" /v FontFamily /t REG_DWORD /d 54 /f >nul 2>&1
+reg add "%~1" /v FontWeight /t REG_DWORD /d 400 /f >nul 2>&1
+reg add "%~1" /v FontSize /t REG_DWORD /d 1310720 /f >nul 2>&1
 exit /b 0
 :init_esc
 set "S92="
@@ -144,6 +162,16 @@ if !_PN! gtr 92 set /a _PN=92
 if "!_PN!"=="0" exit /b 0
 for %%A in (!_PN!) do set "_P92=!S92:~0,%%A!"
 exit /b 0
+:strlen
+rem Длина !имя! в символах, результат в _LEN. Без powershell: его старт сбрасывал шрифт на растр.
+set "_ss=!%~1!"
+set /a _LEN=0
+:strlen_l
+if not defined _ss exit /b 0
+set "_ss=!_ss:~1!"
+set /a _LEN+=1
+if !_LEN! geq 400 exit /b 0
+goto :strlen_l
 :cls_ui
 rem mode/font уже настроены при старте (setup_console). Здесь только очистка экрана — без лишних дёрганий.
 cls
@@ -176,7 +204,6 @@ del "!HOSTS_ERR!" >nul 2>&1
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%PS_HOSTS%" -Action Apply -Ip "%TG_IP%" -DomainsFile "%DOMAINS%" -BackupDir "%BACKUP%" 1>nul 2>"!HOSTS_ERR!"
 set "PS_EXIT=!errorlevel!"
 if not "!PS_EXIT!"=="0" exit /b 1
-call :fix_after_hidden_ps
 ipconfig /flushdns >nul
 exit /b 0
 :disable_hosts_silent
@@ -190,7 +217,6 @@ if not "!PS_EXIT!"=="0" exit /b 1
 rem Verify после Remove убран: при успешном удалении он часто давал exit 1
 rem (кодировка/чужие строки в hosts), bat показывал «Нет доступа», хотя fix уже снят.
 set "DH_OK=0"
-call :fix_after_hidden_ps
 exit /b 0
 :header
 call :cls_ui
@@ -200,7 +226,7 @@ exit /b 0
 echo.
 echo   !CYN!╔════════════════════════════════════════════════════════════════════════════════════════════╗!R!
 echo   !CYN!║!R!                                     !GRN!TELEGRAM WEB FIX!R!                                       !CYN!║!R!
-echo   !CYN!║!R!                            !DIM!web.telegram.org / t.me через hosts!R!                           !CYN!║!R!
+echo   !CYN!║!R!                            !DIM!web.telegram.org / t.me через hosts!R!                             !CYN!║!R!
 echo   !CYN!╚════════════════════════════════════════════════════════════════════════════════════════════╝!R!
 echo.
 call :status_line
@@ -217,28 +243,28 @@ set "FIX_T=!YLW!выкл!R!"
 call :box_top "Состояние"
 set /a _bxp=65
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  Фикс ............... !FIX_T!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  Фикс ............... !FIX_T!!_P92!!GRY!│!R!
 if defined TG_IP goto :st_has_ip
 set /a _bxp=62
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  IP ................ !GRY!не задан!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  IP ................ !GRY!не задан!R!!_P92!!GRY!│!R!
 set /a _bxp=59
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  Конфиг ............ !GRY!сначала [4]!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  Конфиг ............ !GRY!сначала [4]!R!!_P92!!GRY!│!R!
 goto :st_after_ip
 :st_has_ip
 set "IPX=!TG_IP!              "
 set "IPX=!IPX:~0,15!"
 set /a _bxp=54
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  IP ................ !CYN! !IPX!!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  IP ................ !CYN! !IPX!!R!!_P92!!GRY!│!R!
 set /a _bxp=51
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  Конфиг ............ !WHT!telegram-web-ip.cfg!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  Конфиг ............ !WHT!telegram-web-ip.cfg!R!!_P92!!GRY!│!R!
 :st_after_ip
-set /a _bxp=50
+set /a _bxp=48
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!  Домены ............ !DIM!Web + t.me + WebSocket!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  Домены ............ !DIM!Web + t.me + WebSocket!R!!_P92!!GRY!│!R!
 call :box_bottom
 echo.
 exit /b 0
@@ -246,14 +272,14 @@ exit /b 0
 call :box_top "Меню"
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 if defined TG_IP goto :mn_item1_ok
 set /a _g=14 & set /a _t=51
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !GRY![1]!R!  !GRY!Включить!R!!_gsp!!DIM!сначала [4]!R!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !GRY![1]!R!  !GRY!Включить!R!!_gsp!!DIM!сначала [4]!R!!_tr!!GRY!│!R!
 goto :mn_after1
 :mn_item1_ok
 set /a _g=14 & set /a _t=40
@@ -261,7 +287,7 @@ call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !GRN![1]!R!  !WHT!Включить!R!!_gsp!!DIM!- записать fix в hosts!R!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !GRN![1]!R!  !WHT!Включить!R!!_gsp!!DIM!- записать fix в hosts!R!!_tr!!GRY!│!R!
 :mn_after1
 if "!FIX_ON!"=="1" (
     set /a _g=13 & set /a _t=33
@@ -269,49 +295,49 @@ if "!FIX_ON!"=="1" (
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-    echo   !GRY!^|!R!   !RED![2]!R!  !WHT!Выключить!R!!_gsp!!DIM!- убрать наши строки из hosts!R!!_tr!!GRY!^|!R!
+    echo   !GRY!│!R!   !RED![2]!R!  !WHT!Выключить!R!!_gsp!!DIM!- убрать наши строки из hosts!R!!_tr!!GRY!│!R!
 ) else (
     set /a _g=13 & set /a _t=38
     call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-    echo   !GRY!^|!R!   !GRY![2]!R!  !GRY!Выключить!R!!_gsp!!DIM!- !GRY!нечего: fix не включён!R!!_tr!!GRY!^|!R!
+    echo   !GRY!│!R!   !GRY![2]!R!  !GRY!Выключить!R!!_gsp!!DIM!- !GRY!нечего: fix не включён!R!!_tr!!GRY!│!R!
 )
 set /a _g=14 & set /a _t=46
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !CYN![3]!R!  !WHT!Просмотр!R!!_gsp!!DIM!- строки в hosts!R!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !CYN![3]!R!  !WHT!Просмотр!R!!_gsp!!DIM!- строки в hosts!R!!_tr!!GRY!│!R!
 set /a _g=14 & set /a _t=44
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !GRN![4]!R!  !WHT!Поиск IP!R!!_gsp!!DIM!- проверка DC :443!R!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !GRN![4]!R!  !WHT!Поиск IP!R!!_gsp!!DIM!- проверка DC :443!R!!_tr!!GRY!│!R!
 set /a _g=4 & set /a _t=41
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !CYN![5]!R!  !WHT!Обновить список IP!R!!_gsp!!DIM!- cidr.txt с Telegram!R!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !CYN![5]!R!  !WHT!Обновить список IP!R!!_gsp!!DIM!- cidr.txt с Telegram!R!!_tr!!GRY!│!R!
 set /a _g=17 & set /a _t=62
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !GRY![0]!R!  !WHT!Выход!R!!_gsp!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !GRY![0]!R!  !WHT!Выход!R!!_gsp!!_tr!!GRY!│!R!
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 if defined TG_IP goto :mn_hint_ok
 set /a _g=1 & set /a _t=48
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !YLW!Сначала [4] Поиск IP, потом [1] Включить!R!!_gsp!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !YLW!Сначала [4] Поиск IP, потом [1] Включить!R!!_gsp!!_tr!!GRY!│!R!
 goto :mn_hint_done
 :mn_hint_ok
 set /a _g=7 & set /a _t=62
@@ -319,29 +345,25 @@ call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !GRY!Дальше: [1] Включить!R!!_gsp!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !GRY!Дальше: [1] Включить!R!!_gsp!!_tr!!GRY!│!R!
 set /a _g=1 & set /a _t=41
 call :pad92_len !_g!
 set "_gsp=!_P92!"
 call :pad92_len !_t!
 set "_tr=!_P92!"
-echo   !GRY!^|!R!   !DIM![1] сохраняется после перезагрузки, пока не [2]!R!!_gsp!!_tr!!GRY!^|!R!
+echo   !GRY!│!R!   !DIM![1] сохраняется после перезагрузки, пока не [2]!R!!_gsp!!_tr!!GRY!│!R!
 :mn_hint_done
 call :box_bottom
 echo.
 exit /b 0
 :box_top
 set "BOXTITLE=%~1"
-set "_bxw=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''BOXTITLE'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _bxw=%%N
-)
-if not defined _bxw set "_bxw=0"
-set /a _bxp=90-_bxw
+call :strlen BOXTITLE
+set /a _bxp=90-_LEN
 if !_bxp! lss 0 set /a _bxp=0
 call :pad92_len !_bxp!
 echo   !GRY!┌────────────────────────────────────────────────────────────────────────────────────────────┐!R!
-echo   !GRY!^|!R!  !WHT!!BOXTITLE!!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!  !WHT!!BOXTITLE!!R!!_P92!!GRY!│!R!
 echo   !GRY!├────────────────────────────────────────────────────────────────────────────────────────────┤!R!
 set "_P92=" & set "_bxw=" & set "BOXTITLE="
 exit /b 0
@@ -362,78 +384,58 @@ echo.
 exit /b 0
 :line_ok
 set "E2=%~1"
-set "_tl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''E2'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _tl=%%N
-)
-if not defined _tl set "_tl=0"
-set /a _tp=92-9-_tl
+call :strlen E2
+set /a _tp=92-9-_LEN
 if !_tp! lss 0 set /a _tp=0
 call :pad92_len !_tp!
-echo   !GRY!^|!R!   !GRN![OK]!R!  !E2!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !GRN![OK]!R!  !E2!!_P92!!GRY!│!R!
 exit /b 0
 :line_fail
 rem ^^!^^! — двойной caret экранирует ! при delayed expansion (иначе [!!]!R! схлопывается в "[R").
 set "E2=%~1"
-set "_tl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''E2'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _tl=%%N
-)
-if not defined _tl set "_tl=0"
+call :strlen E2
 rem Префикс как у [OK]: 3 пробела + «[!]» (3) + 3 пробела до текста = 9 видимых колонок.
-set /a _tp=92-9-_tl
+set /a _tp=92-9-_LEN
 if !_tp! lss 0 set /a _tp=0
 call :pad92_len !_tp!
-echo   !GRY!^|!R!   !RED![^^!^^!]!R!   !E2!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !RED![^^!^^!]!R!   !E2!!_P92!!GRY!│!R!
 exit /b 0
 :line_info
 set "E2=%~1"
-set "_tl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''E2'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _tl=%%N
-)
-if not defined _tl set "_tl=0"
+call :strlen E2
 rem «[i]» короче «[OK]» — 4 пробела до E2, чтобы колонка текста совпала с line_ok/line_fail (всего 10 колонок до E2).
-set /a _tp=92-10-_tl
+set /a _tp=92-10-_LEN
 if !_tp! lss 0 set /a _tp=0
 call :pad92_len !_tp!
-echo   !GRY!^|!R!   !GRY![i]!R!    !E2!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !GRY![i]!R!    !E2!!_P92!!GRY!│!R!
 exit /b 0
 :banner_ok
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 set "E2=%~1"
-set "_tl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''E2'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _tl=%%N
-)
-if not defined _tl set "_tl=0"
-set /a _tp=92-6-_tl
+call :strlen E2
+set /a _tp=92-6-_LEN
 if !_tp! lss 0 set /a _tp=0
 call :pad92_len !_tp!
-echo   !GRY!^|!R!   !GRN!^>^> !E2!!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !GRN!^>^> !E2!!R!!_P92!!GRY!│!R!
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 exit /b 0
 :banner_fail
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 set "E2=%~1"
-set "_tl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''E2'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _tl=%%N
-)
-if not defined _tl set "_tl=0"
-set /a _tp=92-6-_tl
+call :strlen E2
+set /a _tp=92-6-_LEN
 if !_tp! lss 0 set /a _tp=0
 call :pad92_len !_tp!
-echo   !GRY!^|!R!   !RED!^>^> !E2!!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !RED!^>^> !E2!!R!!_P92!!GRY!│!R!
 set /a _bxp=92
 call :pad92_len !_bxp!
-echo   !GRY!^|!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!!_P92!!GRY!│!R!
 exit /b 0
 :scan_show_log
 set "RPT_DNS=0"
@@ -503,6 +505,9 @@ if "%~1"=="N" if "%~2"=="dnsSrv" echo   !GRY!    DNS с ответом: %~3 из
 if "%~1"=="N" if "%~2"=="tcpTry" echo   !GRY!    проверок TCP: %~3!R!
 if "%~1"=="N" if "%~2"=="tncTry" echo   !GRY!    проверок TNC: %~3!R!
 if "%~1"=="N" exit /b 0
+if "%~1"=="NET" if /i "%~2"=="up" call :scan_net_up "%~3"
+if "%~1"=="NET" if /i "%~2"=="down" echo   !YLW!  Контроль 1.1.1.1, 8.8.8.8, 9.9.9.9:443 .. тоже не открылся — проверьте исходящий интернет!R!
+if "%~1"=="NET" exit /b 0
 if "%~1"=="ROW" exit /b 0
 if "%~1"=="ERR" if "%~2"=="empty_list" echo   !RED!  Список пуст: lists\telegram-ip-candidates.txt!R!
 if "%~1"=="ERR" if "%~2"=="no_reply" call :scan_err_no_reply
@@ -532,14 +537,18 @@ echo   !DIM!    !SCAN_T!!R!
 exit /b 0
 :scan_err_no_reply
 echo   !RED!  Ни один IP не ответил на TCP 443.!R!
-echo   !GRY!  Попробуйте другую сеть или другой VPN/сервер.!R!
-echo   !GRY!  Если VPN целиком в туннель - на минуту отключите или split-tunnel для браузера.!R!
+echo   !GRY!  До дата-центров Telegram пакеты не доходят, hosts это не чинит.!R!
+echo   !GRY!  Нужна другая сеть, раздача с телефона или VPN со split-tunnel для браузера.!R!
 echo   !GRY!  Подсети: !R!!CYN!https://core.telegram.org/resources/cidr.txt!R!
+exit /b 0
+:scan_net_up
+for /f "tokens=1,2 delims=/" %%i in ("%~1") do echo   !YLW!  Контроль %%i:443 .. открыт за %%j мс — интернет есть, молчит путь к Telegram!R!
 exit /b 0
 :scan_live_prog
 if "!SCAN_PROG2!"=="%~1" exit /b 0
 set "SCAN_PROG2=%~1"
-echo   !GRY!  TCP :443 .............. [!%~1!/!%~2!]!R!
+set "SCAN_PROGT=%~2"
+echo   !GRY!  TCP :443 .............. [!SCAN_PROG2!/!SCAN_PROGT!]!R!
 exit /b 0
 :menu
 call :load_ip
@@ -600,9 +609,13 @@ call :load_ip
 echo.
 if exist "%SCAN_LOG%" (
     echo   !GRY!├────────────────────────────────────────────────────────────────────────────────────────────┤!R!
-    set /a _bxp=84
+    set "BOXTITLE=Отчёт"
+    call :strlen BOXTITLE
+    set /a _bxp=90-_LEN
+    if !_bxp! lss 0 set /a _bxp=0
     call :pad92_len !_bxp!
-    echo   !GRY!^|!R!  !WHT!Отчёт!R!!_P92!!GRY!^|!R!
+    echo   !GRY!│!R!  !WHT!!BOXTITLE!!R!!_P92!!GRY!│!R!
+    set "BOXTITLE="
     echo   !GRY!├────────────────────────────────────────────────────────────────────────────────────────────┤!R!
     call :scan_show_log "%SCAN_LOG%"
     echo   !GRY!└────────────────────────────────────────────────────────────────────────────────────────────┘!R!
@@ -732,15 +745,11 @@ if "!found!"=="0" (
 call :wait
 goto :menu
 :hosts_echo_row
-set "_hl=0"
-for /f "delims=" %%N in ('"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoP -Command "[Environment]::GetEnvironmentVariable(''HROW'',''Process'').Length" 2^>nul') do (
-    if "%%N" neq "" set /a _hl=%%N
-)
-if not defined _hl set "_hl=0"
-set /a _hp=92-3-_hl
+call :strlen HROW
+set /a _hp=92-3-_LEN
 if !_hp! lss 0 set /a _hp=0
 call :pad92_len !_hp!
-echo   !GRY!^|!R!   !DIM!!HROW!!R!!_P92!!GRY!^|!R!
+echo   !GRY!│!R!   !DIM!!HROW!!R!!_P92!!GRY!│!R!
 exit /b 0
 :bye
 call :header

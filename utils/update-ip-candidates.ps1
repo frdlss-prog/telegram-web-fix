@@ -123,7 +123,7 @@ function Invoke-TwfHttpGet {
     if (-not (Test-Path -LiteralPath $curl)) { return $null }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tg-curl-{0}.txt" -f [Guid]::NewGuid().ToString('n'))
     try {
-        & $curl --ssl-no-revoke -fsSL --max-time $TimeoutSec -o $tmp $Uri 2>$null
+        & $curl -fsSL --max-time $TimeoutSec -o $tmp $Uri 2>$null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp)) {
             return [System.IO.File]::ReadAllText($tmp)
         }
@@ -243,7 +243,7 @@ function Invoke-TwfHttpGetViaDohResolve {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("tg-cidr-doh-{0}.txt" -f [Guid]::NewGuid().ToString('n'))
         try {
             $resolve = ('{0}:443:{1}' -f $hostName, $ip)
-            & $curl --ssl-no-revoke -fsSL --max-time $TimeoutSec --resolve $resolve -o $tmp $Uri 2>$null
+            & $curl -fsSL --max-time $TimeoutSec --resolve $resolve -o $tmp $Uri 2>$null
             if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp)) {
                 $text = [System.IO.File]::ReadAllText($tmp)
                 if (Test-CidrText $text) { return $text }
@@ -288,8 +288,8 @@ function Get-TelegramCidrContent {
         @{ Id = 'fernvenue-cdn'; Kind = 'remote'; Uri = 'https://cdn.jsdelivr.net/gh/fernvenue/telegram-cidr-list@master/CIDR.txt' },
         @{ Id = 'cloudranges-gh'; Kind = 'remote'; Uri = 'https://raw.githubusercontent.com/disposable/cloud-ip-ranges/master/txt/telegram.txt' },
         @{ Id = 'cloudranges-cdn'; Kind = 'remote'; Uri = 'https://cdn.jsdelivr.net/gh/disposable/cloud-ip-ranges@master/txt/telegram.txt' },
-        @{ Id = 'repo-gh'; Kind = 'remote'; Uri = 'https://raw.githubusercontent.com/frdlss/telegram-web-hosts-fix/main/lists/telegram-cidr-official.txt' },
-        @{ Id = 'repo-cdn'; Kind = 'remote'; Uri = 'https://cdn.jsdelivr.net/gh/frdlss/telegram-web-hosts-fix@main/lists/telegram-cidr-official.txt' },
+        @{ Id = 'repo-gh'; Kind = 'remote'; Uri = 'https://raw.githubusercontent.com/frdlss/telegram-web-fix/main/lists/telegram-cidr-official.txt' },
+        @{ Id = 'repo-cdn'; Kind = 'remote'; Uri = 'https://cdn.jsdelivr.net/gh/frdlss/telegram-web-fix@main/lists/telegram-cidr-official.txt' },
         @{ Id = 'bundled'; Kind = 'local'; Uri = $BundledCidr }
     )
 
@@ -392,8 +392,8 @@ $sourceNote = switch ($fetch.SourceId) {
     'fernvenue-cdn' { 'mirror: cdn.jsdelivr.net/gh/fernvenue/telegram-cidr-list' }
     'cloudranges-gh' { 'mirror: github.com/disposable/cloud-ip-ranges' }
     'cloudranges-cdn' { 'mirror: cdn.jsdelivr.net/gh/disposable/cloud-ip-ranges' }
-    'repo-gh' { 'mirror: github.com/frdlss/telegram-web-hosts-fix' }
-    'repo-cdn' { 'mirror: cdn.jsdelivr.net/gh/frdlss/telegram-web-hosts-fix' }
+    'repo-gh' { 'mirror: github.com/frdlss/telegram-web-fix' }
+    'repo-cdn' { 'mirror: cdn.jsdelivr.net/gh/frdlss/telegram-web-fix' }
     'bundled' { 'bundled: lists/telegram-cidr-official.txt' }
     default { 'unknown' }
 }

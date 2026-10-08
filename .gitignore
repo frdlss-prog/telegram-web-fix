@@ -1,0 +1,11 @@
+# Найденный IP и локальные снимки — не исходники
+telegram-web-ip.cfg
+lists/telegram-ip-failed.txt
+
+# Снимок hosts и случайно собранные DLL
+backup/*
+!backup/.gitkeep
+
+# Шрифт консоли собирается в %TEMP% при первом запуске
+utils/*.dll
+*.dll

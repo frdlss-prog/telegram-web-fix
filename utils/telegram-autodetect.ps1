@@ -203,6 +203,40 @@ function Test-WaveTcp443 {
     return $winner
 }
 
+function Open-Tcp443 {
+    param(
+        [Parameter(Mandatory)][string]$Ip,
+        [Parameter(Mandatory)][int]$TimeoutMs
+    )
+    $client = $null
+    try {
+        $client = [System.Net.Sockets.TcpClient]::new()
+        $addr = $null
+        try { $addr = [System.Net.IPAddress]::Parse($Ip) } catch { $addr = $null }
+        if ($null -eq $addr) {
+            try { $client.Dispose() } catch {}
+            return $null
+        }
+        $iar = $client.BeginConnect($addr, 443, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) {
+            try { $client.Dispose() } catch {}
+            return $null
+        }
+        try { $client.EndConnect($iar) } catch {
+            try { $client.Dispose() } catch {}
+            return $null
+        }
+        if (-not $client.Connected) {
+            try { $client.Dispose() } catch {}
+            return $null
+        }
+        return $client
+    } catch {
+        try { if ($null -ne $client) { $client.Dispose() } } catch {}
+        return $null
+    }
+}
+
 function Test-Tnc443 {
     param([Parameter(Mandatory)][string]$Ip)
     try {
@@ -213,23 +247,99 @@ function Test-Tnc443 {
     }
 }
 
+function Test-ControlTcp443 {
+    param([int]$TimeoutMs = 1200)
+    $candidates = @('1.1.1.1', '8.8.8.8', '9.9.9.9')
+    foreach ($ip in $candidates) {
+        $client = $null
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $client = [System.Net.Sockets.TcpClient]::new()
+            $iar = $client.BeginConnect($ip, 443, $null, $null)
+            if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) { continue }
+            try { $client.EndConnect($iar) } catch { continue }
+            if ($client.Connected) {
+                return @{ Ok = $true; Ms = [int]$sw.ElapsedMilliseconds; Ip = $ip }
+            }
+        } catch {
+        } finally {
+            try { if ($null -ne $client) { $client.Dispose() } } catch {}
+        }
+    }
+    return @{ Ok = $false; Ms = 0; Ip = '' }
+}
+
 function Get-TlsWebCheckHosts {
     # Страница + WebSocket (QR) + короткие ссылки telegram.me / t.me на том же DC.
     return @('web.telegram.org', 'kws2.web.telegram.org', 'telegram.me', 't.me')
+}
+
+function Test-TlsOnLiveClient {
+    param(
+        [Parameter(Mandatory)]$Client,
+        [Parameter(Mandatory)][string]$HostName,
+        [Parameter(Mandatory)][int]$TlsTimeoutMs
+    )
+    $ssl = $null
+    try {
+        if (-not $Client.Connected) {
+            return @{ Ok = $false; Reason = 'tcp_no' }
+        }
+        $ssl = New-Object System.Net.Security.SslStream($Client.GetStream(), $false)
+        $ar = $ssl.BeginAuthenticateAsClient($HostName, $null, $null)
+        if (-not $ar.AsyncWaitHandle.WaitOne($TlsTimeoutMs)) {
+            return @{ Ok = $false; Reason = 'tls_timeout' }
+        }
+        $ssl.EndAuthenticateAsClient($ar)
+        if (-not $ssl.IsAuthenticated) {
+            return @{ Ok = $false; Reason = 'tls_not_authenticated' }
+        }
+        return @{ Ok = $true; Reason = '' }
+    } catch {
+        return @{ Ok = $false; Reason = ('tls_' + $_.Exception.GetType().Name) }
+    } finally {
+        try { if ($null -ne $ssl) { $ssl.Dispose() } } catch {}
+        try { if ($null -ne $Client) { $Client.Dispose() } } catch {}
+    }
 }
 
 function Test-IpPassesTlsForWeb {
     param(
         [Parameter(Mandatory)][string]$Ip,
         [Parameter(Mandatory)][int]$TcpTimeoutMs,
-        [Parameter(Mandatory)][int]$TlsTimeoutMs
+        [Parameter(Mandatory)][int]$TlsTimeoutMs,
+        $LiveClient
     )
-    foreach ($hostName in (Get-TlsWebCheckHosts)) {
-        $tlsR = Test-TlsClient443 -Ip $Ip -HostName $hostName -TcpTimeoutMs $TcpTimeoutMs -TlsTimeoutMs $TlsTimeoutMs
-        if (-not $tlsR.Ok) {
-            return @{ Ok = $false; Reason = [string]$tlsR.Reason; Host = $hostName }
+    # Обязательна только страница web.telegram.org на уже открытом сокете.
+    # kws2 / telegram.me / t.me часто не открывают следующий SYN на 149.154.167.220.
+    # Обрыв — не чужой сертификат, адрес не выбрасываем.
+    $names = @(Get-TlsWebCheckHosts)
+    $live = $LiveClient
+    for ($n = 0; $n -lt $names.Count; $n++) {
+        $hostName = $names[$n]
+        $required = ($n -eq 0)
+        $attempts = 3
+        if (-not $required) { $attempts = 1 }
+        $tlsR = $null
+        for ($try = 1; $try -le $attempts; $try++) {
+            if ($null -ne $live) {
+                $tlsR = Test-TlsOnLiveClient -Client $live -HostName $hostName -TlsTimeoutMs $TlsTimeoutMs
+                $live = $null
+            } else {
+                $tlsR = Test-TlsClient443 -Ip $Ip -HostName $hostName -TcpTimeoutMs $TcpTimeoutMs -TlsTimeoutMs $TlsTimeoutMs
+            }
+            if ($tlsR.Ok) { break }
+            $reason = [string]$tlsR.Reason
+            if ($reason -notmatch 'tcp_timeout|tcp_fail|tcp_no') { break }
+            if ($try -lt $attempts) { Start-Sleep -Milliseconds 350 }
         }
+        if ($tlsR.Ok) { continue }
+        $reason = [string]$tlsR.Reason
+        if (-not $required -and $reason -match 'tcp_timeout|tcp_fail|tcp_no') { break }
+        try { if ($null -ne $live) { $live.Dispose() } } catch {}
+        return @{ Ok = $false; Reason = $reason; Host = $hostName }
     }
+    try { if ($null -ne $live) { $live.Dispose() } } catch {}
     return @{ Ok = $true; Reason = ''; Host = '' }
 }
 
@@ -290,12 +400,9 @@ function Add-Ipv4ToSet([System.Collections.Generic.HashSet[string]]$Set, [string
     return $false
 }
 
-function Add-DnsIpv4 {
-    param(
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$Set,
-        [Parameter(Mandatory)][System.Collections.ArrayList]$Order,
-        [Parameter(Mandatory)][string]$Ip
-    )
+function Add-DnsIpv4($Set, $Order, [string]$Ip) {
+    # Без [HashSet]/[ArrayList] в param(): у advanced-функции пустая коллекция
+    # не привязывается («пустая коллекция»), и первый адрес DNS/DoH никогда не попадает в очередь.
     if (Add-Ipv4ToSet $Set $Ip) {
         [void]$Order.Add($Ip.Trim())
     }
@@ -316,13 +423,16 @@ function Resolve-NameA([string]$Name) {
 
 function Get-FailedTcpIpSet {
     $s = New-Object 'System.Collections.Generic.HashSet[string]'
-    if (-not (Test-Path -LiteralPath $FailedFile)) { return $s }
-    foreach ($line in (Get-Content -LiteralPath $FailedFile -ErrorAction SilentlyContinue)) {
-        $t = $line.Trim()
-        if (-not $t -or $t -match '^\s*#') { continue }
-        if ($t -match '^\d{1,3}(\.\d{1,3}){3}$') { [void]$s.Add($t) }
+    if (Test-Path -LiteralPath $FailedFile) {
+        foreach ($line in (Get-Content -LiteralPath $FailedFile -ErrorAction SilentlyContinue)) {
+            $t = $line.Trim()
+            if (-not $t -or $t -match '^\s*#') { continue }
+            if ($t -match '^\d{1,3}(\.\d{1,3}){3}$') { [void]$s.Add($t) }
+        }
     }
-    return $s
+    # Запятая обязательна: иначе PowerShell разворачивает HashSet в вывод,
+    # пустой набор становится $null и кэш неудач записывается как «entries 0».
+    return ,$s
 }
 
 function Remove-IpFromFailedFile([string]$Ip) {
@@ -676,30 +786,111 @@ if ($failedSkipSet.Count -gt 0) {
     }
 }
 
-$TcpTimeoutMs = 3000
-if ($candidates.Count -gt 400) { $TcpTimeoutMs = 1700 }
-elseif ($candidates.Count -gt 250) { $TcpTimeoutMs = 2000 }
-elseif ($candidates.Count -gt 120) { $TcpTimeoutMs = 2400 }
+$TcpTimeoutMs = 800
+$waveParallel = 48
 
 Emit 'SRC' ([string]$fileList.Count) ([string]$candidates.Count)
-Emit 'Q' ([string]$candidates.Count) ([string]$Parallel)
-Emit 'MS' ([string]$TcpTimeoutMs)
-
-Emit 'SEC' 'TCP — порт 443'
-Write-ScanStep ("Шаг 4. TCP :443 — сначала DNS/DoH, затем lists\telegram-ip-candidates.txt (из файла {0}, всего {1}; по {2} параллельно)" -f $fileList.Count, $candidates.Count, $Parallel)
-Write-ScanInfo ("  Таймаут на группу: до {0} мс." -f $TcpTimeoutMs)
 
 $found = $null
 $tcpProbed = 0
+$tcpOpen = 0
+$tcpProbeFailAccum = New-Object 'System.Collections.Generic.HashSet[string]'
+
+# 149.154.167.220 отвечает по одному, а в пачке из 28 часто теряется.
+$priorityOrder = @(
+    '149.154.167.220', '149.154.167.91', '149.154.167.51', '149.154.175.100',
+    '91.108.56.130', '149.154.167.99', '149.154.175.50', '149.154.175.209',
+    '149.154.170.96', '149.154.167.40', '149.154.167.50', '149.154.168.98',
+    '149.154.172.98', '91.108.56.100', '91.108.56.181', '185.76.151.43'
+)
+if (Test-Path -LiteralPath $CfgFile) {
+    $prevIp = ''
+    try { $prevIp = ([string](Get-Content -LiteralPath $CfgFile -TotalCount 1)).Trim() } catch {}
+    if ($prevIp -match '^\d{1,3}(\.\d{1,3}){3}$') {
+        $priorityOrder = @($prevIp) + @($priorityOrder | Where-Object { $_ -ne $prevIp })
+    }
+}
+$candSet = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($c in $candidates) { [void]$candSet.Add([string]$c) }
+$priority = @($priorityOrder | Where-Object { $candSet.Contains($_) })
+
+Emit 'SEC' 'TCP — известные адреса'
+Write-ScanStep ("Шаг 4. Сначала {0} известных адресов DC, по одному" -f $priority.Count)
+$pIdx = 0
+foreach ($ip in $priority) {
+    if ($found) { break }
+    $pIdx++
+    if ($ShowProgress) {
+        Write-ScanDim ("  [{0}/{1}] {2}" -f $pIdx, $priority.Count, $ip)
+    }
+    $live = $null
+    $tries = 1
+    $oneMs = 900
+    # Первый адрес — тот, что уже открывал web.telegram.org. SYN до него часто теряется,
+    # две попытки по 2 с его пропускали, и поиск уходил на мёртвые DC.
+    if ($pIdx -eq 1) { $tries = 6; $oneMs = 3000 }
+    $acceptHit = $false
+    for ($try = 1; $try -le $tries; $try++) {
+        if ($try -gt 1) {
+            Start-Sleep -Milliseconds 400
+            if ($ShowProgress) {
+                Write-ScanDim ("  {0}  ещё попытка {1}/{2}" -f $ip, $try, $tries)
+            }
+        }
+        $live = Open-Tcp443 -Ip $ip -TimeoutMs $oneMs
+        if ($null -eq $live) { continue }
+        $tcpOpen++
+        $acceptHit = $true
+        if (-not $SkipPostTls) {
+            $tlsCheck = Test-IpPassesTlsForWeb -Ip $ip -TcpTimeoutMs 4000 -TlsTimeoutMs 8000 -LiveClient $live
+            $live = $null
+            if (-not $tlsCheck.Ok) {
+                $acceptHit = $false
+                $reason = [string]$tlsCheck.Reason
+                $retryTls = ($pIdx -eq 1) -and ($reason -match 'tcp_|tls_timeout') -and ($try -lt $tries)
+                if (-not $retryTls) {
+                    if ($reason -match '\|') { $reason = $reason.Replace('|', '_') }
+                    Emit 'TLS' 'reject' ("{0}|{1}" -f [string]$tlsCheck.Host, $reason)
+                    if ($ShowProgress) {
+                        Write-ScanDim ("  {0,-15}  порт 443 открыт, TLS для {1} — нет ({2})" -f $ip, $tlsCheck.Host, $reason)
+                    }
+                    break
+                }
+            }
+        } else {
+            try { $live.Dispose() } catch {}
+        }
+        if ($acceptHit) { break }
+    }
+    if (-not $acceptHit) { continue }
+    if ($acceptHit) {
+        $found = $ip
+        Emit 'LIVE' 'ok' $ip
+        Emit 'ROW' $ip 'ok'
+        if ($ShowProgress) {
+            Write-ScanOk ("  {0,-15}  порт 443: открыт" -f $ip)
+        }
+    }
+}
+
+if (-not $found) {
+    $priSet = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($p in $priority) { [void]$priSet.Add([string]$p) }
+    $candidates = @($candidates | Where-Object { -not $priSet.Contains([string]$_) })
+    Emit 'Q' ([string]$candidates.Count) ([string]$waveParallel)
+    Emit 'MS' ([string]$TcpTimeoutMs)
+    Emit 'SEC' 'TCP — остальные адреса'
+    if ($ShowProgress -and $candidates.Count -gt 0) {
+        Write-ScanStep ("Дальше остальные {0} адресов, по {1}, таймаут {2} мс" -f $candidates.Count, $waveParallel, $TcpTimeoutMs)
+    }
+}
+
 $total = $candidates.Count
 $idx = 0
 $progWave = 0
-$tcpProbeFailAccum = New-Object 'System.Collections.Generic.HashSet[string]'
-
-Write-ScanDim ("  Ожидайте: проверка {0} адресов (обычно 30–90 с, при блокировке сети — до 2 мин.)…" -f $total)
 
 while ($idx -lt $total -and -not $found) {
-    $waveSize = [Math]::Min($Parallel, $total - $idx)
+    $waveSize = [Math]::Min($waveParallel, $total - $idx)
     $wave = @($candidates[$idx..($idx + $waveSize - 1)])
     $idx += $waveSize
     $tcpProbed += $wave.Count
@@ -717,10 +908,11 @@ while ($idx -lt $total -and -not $found) {
 
     $hit = Test-WaveTcp443 -Ips $wave -TimeoutMs $TcpTimeoutMs
     if ($hit) {
+        $tcpOpen++
         Emit 'PROG' ([string]$toN) ([string]$total)
         $acceptHit = $true
         if (-not $SkipPostTls) {
-            $tlsTcpMs = [Math]::Min(2800, $TcpTimeoutMs)
+            $tlsTcpMs = 5000
             $tlsHsMs = 8000
             $tlsCheck = Test-IpPassesTlsForWeb -Ip $hit -TcpTimeoutMs $tlsTcpMs -TlsTimeoutMs $tlsHsMs
             if (-not $tlsCheck.Ok) {
@@ -772,9 +964,10 @@ if (-not $found -and $EnablePass2) {
         Write-VerboseLine ("  [фаза 2] [{0}/{1}] {2}" -f $i, $total, $ip)
         $tncProbed++
         if (Test-Tnc443 -Ip $ip) {
+            $tcpOpen++
             $acceptPass2 = $true
             if (-not $SkipPostTls) {
-                $tlsTcpMs = [Math]::Min(2800, $TcpTimeoutMs)
+                $tlsTcpMs = 5000
                 $tlsHsMs = 8000
                 $tlsCheck = Test-IpPassesTlsForWeb -Ip $ip -TcpTimeoutMs $tlsTcpMs -TlsTimeoutMs $tlsHsMs
                 if (-not $tlsCheck.Ok) {
@@ -806,13 +999,32 @@ if (-not $found) {
     Emit 'N' 'ms' ([string]$TcpTimeoutMs)
     Emit 'N' 'parallel' ([string]$Parallel)
     Emit 'N' 'pass2' $(if ($ranPass2) { '1' } else { '0' })
-    Append-FailedTcpProbes $tcpProbeFailAccum
+    if ($tcpOpen -gt 0) {
+        Append-FailedTcpProbes $tcpProbeFailAccum
+    } else {
+        # Ни одного TCP-ответа: это обрыв пути, а не «мёртвые» DC.
+        # Запись их в кэш заставила бы следующий запуск (уже с VPN) пропустить живые адреса.
+        if (Test-Path -LiteralPath $FailedFile) {
+            Remove-Item -LiteralPath $FailedFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $ctrl = Test-ControlTcp443
+    if ($ctrl.Ok) {
+        Emit 'NET' 'up' ("{0}/{1}" -f $ctrl.Ip, $ctrl.Ms)
+    } else {
+        Emit 'NET' 'down' '1.1.1.1 8.8.8.8 9.9.9.9'
+    }
     Emit 'ERR' 'no_reply'
     Emit 'DONE' '1'
     if ($ShowProgress) {
         Write-ScanUi ''
-        Write-ScanFail '  Подходящий адрес не найден. Попробуйте [5], другую сеть или VPN.'
-        Write-ScanDim '  Если VPN включён: отключите на минуту или включите split-tunnel для браузера — иначе TCP к DC может не дойти.'
+        if ($ctrl.Ok) {
+            Write-ScanFail ("  Подходящий адрес не найден. {0}:443 открыт за {1} мс — интернет есть, молчат адреса Telegram." -f $ctrl.Ip, $ctrl.Ms)
+            Write-ScanDim '  hosts это не обходит. Нужна другая сеть, раздача с телефона или VPN со split-tunnel для браузера.'
+        } else {
+            Write-ScanFail '  Подходящий адрес не найден. Контроль 1.1.1.1, 8.8.8.8 и 9.9.9.9:443 тоже не открылся.'
+            Write-ScanDim '  Проверьте исходящий интернет. Если VPN включён целиком в туннель — отключите на минуту или включите split-tunnel.'
+        }
     }
     Exit-Scan 1
 }

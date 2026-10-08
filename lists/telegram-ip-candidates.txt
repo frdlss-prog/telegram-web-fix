@@ -1,7 +1,7 @@
-# Telegram Web Fix вЂ” IPv4 candidates for menu [4]
-# Source: mirror: gitlab.com/fernvenue/telegram-cidr-list (daily)
+# Telegram Web Fix — IPv4 candidates for menu [4]
+# Source: mirror: github.com/fernvenue/telegram-cidr-list (daily)
 # Refresh: menu [5] or: powershell -File utils\update-ip-candidates.ps1
-# twf-build 2026-07-06 14:12 | CIDR blocks: 9 | unique IPv4: 527 (seed + CIDR only, no merge with old file)
+# twf-build 2026-10-08 20:53 | CIDR blocks: 9 | unique IPv4: 527 (seed + CIDR only, no merge with old file)
 149.154.175.50
 149.154.175.100
 149.154.175.209
